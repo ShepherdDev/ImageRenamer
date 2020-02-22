@@ -1,91 +1,82 @@
-﻿using System;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.ComponentModel;
-using System.Drawing;
-using System.IO;
-using System.Linq;
-using System.Runtime.CompilerServices;
-using System.Text;
-using System.Text.RegularExpressions;
-using System.Threading;
-using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
-using Fluid;
-using MetadataExtractor;
+using System.Windows.Media.Imaging;
+
+using ImageRenamer.Common;
+
 using Microsoft.Win32;
 
-namespace ImageRenamer
+namespace ImageRenamer.Wpf
 {
     /// <summary>
     /// Interaction logic for MainWindow.xaml
     /// </summary>
     public partial class MainWindow : Window
     {
+        #region Properties
+
+        /// <summary>
+        /// Gets the view model.
+        /// </summary>
+        /// <value>
+        /// The view model.
+        /// </value>
         protected ViewModel ViewModel { get; private set; }
 
-        protected CancellationTokenSource UpdateNewNamesCTS;
+        /// <summary>
+        /// Gets the worker.
+        /// </summary>
+        /// <value>
+        /// The worker.
+        /// </value>
+        protected FileWorker Worker { get; private set; }
 
+        #endregion
+
+        #region Constructors
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="MainWindow"/> class.
+        /// </summary>
         public MainWindow()
         {
             InitializeComponent();
 
-            DataContext = ViewModel = new ViewModel( this );
-        }
-
-        private void ResizeListViewColumns( ListView listView )
-        {
-            GridView gv = ( listView.View as GridView );
-
-            foreach ( var column in gv.Columns )
+            Worker = new FileWorker()
             {
-                if ( double.IsNaN( column.Width ) )
-                {
-                    column.Width = 1;
-                }
-                column.Width = double.NaN;
-            }
+                FilenameTemplate = Properties.Settings.Default.FilenameTemplate
+            };
+            DataContext = ViewModel = new ViewModel( Worker );
         }
 
-        private List<FileItem> GetFileList( IEnumerable<string> filenames )
+        #endregion
+
+        #region Methods
+
+        /// <summary>
+        /// Raises the <see cref="E:System.Windows.Window.Closing" /> event.
+        /// </summary>
+        /// <param name="e">A <see cref="T:System.ComponentModel.CancelEventArgs" /> that contains the event data.</param>
+        protected override void OnClosing( CancelEventArgs e )
         {
-            return filenames
-                .Select( a => new
-                 {
-                       Extension = Path.GetExtension( a ).ToUpper(),
-                       Filename = a
-                 } )
-                .Where( a => a.Extension == ".JPG" || a.Extension == ".JPEG" || a.Extension == ".PNG" || a.Extension == ".TIF" || a.Extension == ".TIFF" )
-                .Select( a => FileItem.LoadFrom( a.Filename ) )
-                .Where( a => a != null )
-                .ToList();
+            base.OnClosing( e );
+
+            Properties.Settings.Default.FilenameTemplate = Worker.FilenameTemplate;
+            Properties.Settings.Default.Save();
         }
+
+        #endregion
 
         #region Event Handlers
 
         /// <summary>
-        /// Handles the Click event of the OpenDirectory control.
+        /// Handles the Click event of the AddFiles control.
         /// </summary>
         /// <param name="sender">The source of the event.</param>
         /// <param name="e">The <see cref="RoutedEventArgs"/> instance containing the event data.</param>
-        private void OpenDirectory_Click( object sender, RoutedEventArgs e )
-        {
-            var dialog = new Ookii.Dialogs.Wpf.VistaFolderBrowserDialog();
-
-            if ( dialog.ShowDialog() ?? false )
-            {
-                ViewModel.FileList = GetFileList( System.IO.Directory.EnumerateFiles( dialog.SelectedPath ) );
-            }
-
-            UpdateNewNames();
-        }
-
-        /// <summary>
-        /// Handles the Click event of the OpenFiles control.
-        /// </summary>
-        /// <param name="sender">The source of the event.</param>
-        /// <param name="e">The <see cref="RoutedEventArgs"/> instance containing the event data.</param>
-        private void OpenFiles_Click( object sender, RoutedEventArgs e )
+        private void AddFiles_Click( object sender, RoutedEventArgs e )
         {
             var dialog = new OpenFileDialog
             {
@@ -95,232 +86,114 @@ namespace ImageRenamer
 
             if ( dialog.ShowDialog() == true )
             {
-                ViewModel.FileList = GetFileList( dialog.FileNames );
+                Worker.AppendFileList( dialog.FileNames );
             }
-
-            UpdateNewNames();
         }
 
         /// <summary>
-        /// Handles the SelectionChanged event of the ListView control.
+        /// Handles the Click event of the RemoveFile control.
+        /// </summary>
+        /// <param name="sender">The source of the event.</param>
+        /// <param name="e">The <see cref="RoutedEventArgs"/> instance containing the event data.</param>
+        private void RemoveFile_Click( object sender, RoutedEventArgs e )
+        {
+            if ( dgFileList.SelectedIndex != -1 )
+            {
+                int index = dgFileList.SelectedIndex;
+
+                Worker.RemoveFileAt( index );
+
+                if ( Worker.FileList.Count > 0 && index >= Worker.FileList.Count )
+                {
+                    dgFileList.SelectedIndex = Worker.FileList.Count - 1;
+                }
+                else if ( Worker.FileList.Count > 0 )
+                {
+                    dgFileList.SelectedIndex = index;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Handles the Click event of the ClearList control.
+        /// </summary>
+        /// <param name="sender">The source of the event.</param>
+        /// <param name="e">The <see cref="RoutedEventArgs"/> instance containing the event data.</param>
+        private void ClearList_Click( object sender, RoutedEventArgs e )
+        {
+            Worker.ClearFileList();
+        }
+
+        /// <summary>
+        /// Handles the Click event of the ProcessFiles control.
+        /// </summary>
+        /// <param name="sender">The source of the event.</param>
+        /// <param name="e">The <see cref="RoutedEventArgs"/> instance containing the event data.</param>
+        private void ProcessFiles_Click( object sender, RoutedEventArgs e )
+        {
+            new ProgressDialog()
+            {
+                Owner = this,
+                Worker = Worker
+            }.ShowDialog();
+        }
+
+        /// <summary>
+        /// Handles the SelectionChanged event of the dgFileList control.
         /// </summary>
         /// <param name="sender">The source of the event.</param>
         /// <param name="e">The <see cref="SelectionChangedEventArgs"/> instance containing the event data.</param>
-        private void ListView_SelectionChanged( object sender, SelectionChangedEventArgs e )
+        private void dgFileList_SelectionChanged( object sender, SelectionChangedEventArgs e )
         {
-            var fileItem = ( FileItem ) lvFileList.SelectedItem;
-
-            ViewModel.ImagePreview = fileItem?.FileName;
+            var fileItem = ( FileItem ) dgFileList.SelectedItem;
 
             if ( fileItem != null )
             {
-                ViewModel.ParameterPreview = fileItem.Metadata
-                    .Values
-                    .SelectMany( a => a )
-                    .OrderBy( a => a.Directory )
-                    .ToList();
+                try
+                {
+                    using ( var stream = System.IO.File.OpenRead( fileItem.FileName ) )
+                    {
+                        var bitmap = new BitmapImage();
+                        bitmap.BeginInit();
+                        bitmap.CacheOption = BitmapCacheOption.OnLoad;
+                        bitmap.StreamSource = stream;
+                        bitmap.EndInit();
+                        bitmap.Freeze();
+
+                        ViewModel.ImagePreview = bitmap;
+                    }
+                }
+                catch
+                {
+                    ViewModel.ImagePreview = null;
+                }
+
+                ViewModel.ParameterPreview = fileItem.Metadata;
             }
             else
             {
+                ViewModel.ImagePreview = null;
                 ViewModel.ParameterPreview = new List<MetadataItem>();
             }
-
-            ResizeListViewColumns( lvMetadataPreview );
         }
 
         /// <summary>
-        /// Handles the SizeChanged event of the lvFileList control.
+        /// Handles the MouseDoubleClick event of the dgMetadataPreview control.
         /// </summary>
         /// <param name="sender">The source of the event.</param>
-        /// <param name="e">The <see cref="SizeChangedEventArgs"/> instance containing the event data.</param>
-        private void lvFileList_SizeChanged( object sender, SizeChangedEventArgs e )
+        /// <param name="e">The <see cref="System.Windows.Input.MouseButtonEventArgs"/> instance containing the event data.</param>
+        private void dgMetadataPreview_MouseDoubleClick( object sender, System.Windows.Input.MouseButtonEventArgs e )
         {
-            ResizeListViewColumns( lvFileList );
-        }
+            if ( ( ( FrameworkElement ) e.OriginalSource ).DataContext is MetadataItem metadata )
+            {
+                var template = Worker.FilenameTemplate ?? string.Empty;
 
-        /// <summary>
-        /// Handles the SizeChanged event of the lvMetadataPreview control.
-        /// </summary>
-        /// <param name="sender">The source of the event.</param>
-        /// <param name="e">The <see cref="SizeChangedEventArgs"/> instance containing the event data.</param>
-        private void lvMetadataPreview_SizeChanged( object sender, SizeChangedEventArgs e )
-        {
-            ResizeListViewColumns( lvMetadataPreview );
+                template += "{{" + metadata.QualifiedName + "}}";
+
+                Worker.FilenameTemplate = template;
+            }
         }
 
         #endregion
-
-        private void btnUpdate_Click( object sender, RoutedEventArgs e )
-        {
-            UpdateNewNames();
-        }
-
-        private void tbFileNameTemplate_TextChanged( object sender, TextChangedEventArgs e )
-        {
-            UpdateNewNames();
-        }
-    }
-
-    public class ViewModel : INotifyPropertyChanged
-    {
-        public event PropertyChangedEventHandler PropertyChanged;
-
-        #region Properties
-
-        public string ImagePreview
-        {
-            get => _imagePreview;
-            set
-            {
-                _imagePreview = value;
-                OnPropertyChanged();
-            }
-        }
-        private string _imagePreview;
-
-        public IList<MetadataItem> ParameterPreview
-        {
-            get => _parameterPreview;
-            set
-            {
-                _parameterPreview = value;
-                OnPropertyChanged();
-            }
-        }
-        private IList<MetadataItem> _parameterPreview;
-
-        public IList<FileItem> FileList
-        {
-            get => _fileList;
-            set
-            {
-                _fileList = value;
-                OnPropertyChanged();
-            }
-        }
-        private IList<FileItem> _fileList;
-
-        #endregion
-
-        public ViewModel( MainWindow mainWindow )
-        {
-        }
-
-        protected void OnPropertyChanged( [CallerMemberName] string propertyName = null )
-        {
-            if ( propertyName != null )
-            {
-                PropertyChanged?.Invoke( this, new PropertyChangedEventArgs( propertyName ) );
-            }
-        }
-    }
-
-    public class MetadataItem
-    {
-        public string Directory { get; set; }
-
-        public string Name { get; set; }
-
-        public string QualifiedName => $"{Directory}.{Name}";
-
-        public string Value { get; set; }
-
-        public MetadataItem( string directory, string name, string value )
-        {
-            Directory = directory;
-            Name = name;
-            Value = value;
-        }
-    }
-
-    public class FileItem : INotifyPropertyChanged
-    {
-        public event PropertyChangedEventHandler PropertyChanged;
-
-        public string FileName { get; set; }
-
-        public string OriginalName { get; set; }
-
-        public string NewName
-        {
-            get => _newName;
-            set
-            {
-                _newName = value;
-                PropertyChanged?.Invoke( this, new PropertyChangedEventArgs( nameof( NewName ) ) );
-            }
-        }
-        private string _newName;
-
-        public IReadOnlyDictionary<string, IReadOnlyList<MetadataItem>> Metadata { get; set; }
-
-        public static FileItem LoadFrom( string filename )
-        {
-            var file = new FileItem
-            {
-                FileName = filename,
-                OriginalName = Path.GetFileName( filename ),
-                NewName = string.Empty
-            };
-
-            try
-            {
-                var metadataDirectories = ImageMetadataReader.ReadMetadata( file.FileName );
-                var metadata = metadataDirectories.SelectMany( a => a.Tags )
-                    .Where( a => a.HasName && a.Description != null )
-                    .Select( a => new
-                    {
-                        Directory = CleanKeyForLiquid( a.DirectoryName ),
-                        Name = CleanKeyForLiquid( a.Name ),
-                        Value = a.Description
-                    } )
-                    .GroupBy( a => a.Directory )
-                    .ToDictionary( a => a.Key,
-                        a => ( IReadOnlyList<MetadataItem> ) a.GroupBy( b => b.Name )
-                            .Select( b => b.First() )
-                            .Select( b => new MetadataItem( a.Key, b.Name, b.Value ) )
-                            .ToList() );
-
-                if ( metadata.ContainsKey( "File" ) )
-                {
-                    ( ( List<MetadataItem> ) metadata["File"] ).Add( new MetadataItem( "File", "Extension", Path.GetExtension( filename ).Substring( 1 ) ) );
-                }
-
-                file.Metadata = metadata;
-
-                return file;
-            }
-            catch
-            {
-                return null;
-            }
-        }
-
-        private static string CleanKeyForLiquid( string key )
-        {
-            StringBuilder sb = new StringBuilder( key.Length );
-
-            foreach ( var c in key )
-            {
-                if ( c >= 'a' && c <= 'z' )
-                {
-                    sb.Append( c );
-                }
-                else if ( c >= 'A' && c <= 'Z' )
-                {
-                    sb.Append( c );
-                }
-                else if ( c >= '0' && c <= '9' )
-                {
-                    sb.Append( c );
-                }
-                else if ( c == '_' )
-                {
-                    sb.Append( c );
-                }
-            }
-
-            return sb.ToString();
-        }
     }
 }

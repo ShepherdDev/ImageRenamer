@@ -1,19 +1,17 @@
-using System;
+﻿using System;
+using System.ComponentModel;
 using System.Threading;
 using System.Threading.Tasks;
-
-using AppKit;
-
-using Foundation;
+using System.Windows;
 
 using ImageRenamer.Common;
 
-namespace ImageRenamer.Mac
+namespace ImageRenamer.Wpf
 {
     /// <summary>
-    /// Handles the display of the file rename progress.
+    /// Interaction logic for ProgressDialog.xaml
     /// </summary>
-    public partial class ProgressDialogController : NSViewController
+    public partial class ProgressDialog : Window
     {
         #region Properties
 
@@ -37,11 +35,11 @@ namespace ImageRenamer.Mac
         #region Constructors
 
         /// <summary>
-        /// Creates a new instance of the <see cref="ProgressDialogController"/> class.
+        /// Initializes a new instance of the <see cref="ProgressDialog"/> class.
         /// </summary>
-        /// <param name="handle">The native handle.</param>
-        public ProgressDialogController( IntPtr handle ) : base( handle )
+        public ProgressDialog()
         {
+            InitializeComponent();
         }
 
         #endregion
@@ -49,14 +47,10 @@ namespace ImageRenamer.Mac
         #region Methods
 
         /// <summary>
-        /// The view has appeared and we can start processing.
+        /// Starts the operation.
         /// </summary>
-        public override void ViewDidAppear()
+        private void StartOperation()
         {
-            base.ViewDidAppear();
-
-            progressIndicatorView.StartAnimation( this );
-
             CancellationTokenSource = new CancellationTokenSource();
 
             RenameTask = Task.Run( async () =>
@@ -71,20 +65,15 @@ namespace ImageRenamer.Mac
 
                     await Device.InvokeOnMainThreadAsync( () =>
                     {
-                        var alert = new NSAlert
-                        {
-                            MessageText = "Unexpected error",
-                            InformativeText = ex.Message
-                        };
+                        MessageBox.Show( ex.Message, "Unexpected error" );
 
-                        alert.AddButton( "Ok" );
-                        alert.RunModal();
+                        return;
                     } );
                 }
 
                 if ( !CancellationTokenSource.IsCancellationRequested )
                 {
-                    Device.BeginInvokeOnMainThread( () => DismissController( this ) );
+                    Device.BeginInvokeOnMainThread( () => DialogResult = true );
                 }
             } );
         }
@@ -98,18 +87,16 @@ namespace ImageRenamer.Mac
         {
             Device.BeginInvokeOnMainThread( () =>
             {
-                progressIndicatorView.Indeterminate = false;
-                progressIndicatorView.MaxValue = total;
-                progressIndicatorView.DoubleValue = completedCount;
+                ProgressBar.IsIndeterminate = false;
+                ProgressBar.Maximum = total;
+                ProgressBar.Value = completedCount;
             } );
         }
 
         /// <summary>
         /// Cancels the operation and closes the dialog.
         /// </summary>
-        /// <param name="sender">The object that initiated the action.</param>
-        [System.Diagnostics.CodeAnalysis.SuppressMessage( "Style", "IDE0060:Remove unused parameter", Justification = "Required by Objective-C" )]
-        partial void CancelOperation( NSObject sender )
+        private void CancelOperation()
         {
             CancellationTokenSource.Cancel();
 
@@ -120,11 +107,50 @@ namespace ImageRenamer.Mac
             {
                 for ( int i = 0; i < 20 && !RenameTask.IsCompleted; i++ )
                 {
-                    NSThread.SleepFor( 0.1 );
+                    Thread.Sleep( 100 );
                 }
             }
 
-            DismissController( this );
+            DialogResult = false;
+        }
+
+        #endregion
+
+        #region Event Handlers
+
+        /// <summary>
+        /// Raises the <see cref="E:System.Windows.Window.ContentRendered" /> event.
+        /// </summary>
+        /// <param name="e">An <see cref="T:System.EventArgs" /> that contains the event data.</param>
+        protected override void OnContentRendered( EventArgs e )
+        {
+            base.OnContentRendered( e );
+
+            StartOperation();
+        }
+
+        /// <summary>
+        /// Raises the <see cref="E:System.Windows.Window.Closing" /> event.
+        /// </summary>
+        /// <param name="e">A <see cref="T:System.ComponentModel.CancelEventArgs" /> that contains the event data.</param>
+        protected override void OnClosing( CancelEventArgs e )
+        {
+            base.OnClosing( e );
+
+            if ( !DialogResult.HasValue )
+            {
+                CancelOperation();
+            }
+        }
+
+        /// <summary>
+        /// Handles the Click event of the btnCancel control.
+        /// </summary>
+        /// <param name="sender">The source of the event.</param>
+        /// <param name="e">The <see cref="RoutedEventArgs"/> instance containing the event data.</param>
+        private void btnCancel_Click( object sender, RoutedEventArgs e )
+        {
+            CancelOperation();
         }
 
         #endregion

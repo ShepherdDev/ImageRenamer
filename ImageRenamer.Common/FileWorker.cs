@@ -122,7 +122,7 @@ namespace ImageRenamer.Common
             //
             // Loop through the list of files and rename each one.
             //
-            for (int i = 0; i < _fileList.Count && !cancellationToken.IsCancellationRequested; i++ )
+            for ( int i = 0; i < _fileList.Count && !cancellationToken.IsCancellationRequested; i++ )
             {
                 var file = _fileList[i];
 
@@ -132,7 +132,7 @@ namespace ImageRenamer.Common
                 }
                 catch
                 {
-                    _fileList.RemoveRange( processed );
+                    await Device.InvokeOnMainThreadAsync( () => _fileList.RemoveRange( processed ) );
                     throw;
                 }
 
@@ -141,7 +141,7 @@ namespace ImageRenamer.Common
                 progressCallback?.Invoke( processed.Count, _fileList.Count );
             }
 
-            _fileList.RemoveRange( processed );
+            await Device.InvokeOnMainThreadAsync( () => _fileList.RemoveRange( processed ) );
         }
 
         /// <summary>
